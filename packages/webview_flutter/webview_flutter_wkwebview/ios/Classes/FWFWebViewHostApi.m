@@ -228,6 +228,12 @@
                                    error:(FlutterError *_Nullable __autoreleasing *_Nonnull)error {
   NSURL *fileURL = [NSURL fileURLWithPath:url isDirectory:NO];
   NSURL *readAccessNSURL = [NSURL fileURLWithPath:readAccessUrl isDirectory:YES];
+  NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] objectAtIndex:0];
+
+  NSLog(@"loadFileForWebViewWithIdentifier");
+  NSLog(@"fileURL: %@", fileURL);
+  NSLog(@"readAccessNSURL: %@", readAccessNSURL);
+  NSLog(@"documentsURL: %@", documentsURL);
 
   if (!fileURL) {
     *error = [FWFWebViewHostApiImpl errorForURLString:url];
@@ -235,7 +241,7 @@
     *error = [FWFWebViewHostApiImpl errorForURLString:readAccessUrl];
   } else {
     [[self webViewForIdentifier:identifier] loadFileURL:fileURL
-                                allowingReadAccessToURL:readAccessNSURL];
+                                allowingReadAccessToURL:documentsURL];
   }
 }
 
