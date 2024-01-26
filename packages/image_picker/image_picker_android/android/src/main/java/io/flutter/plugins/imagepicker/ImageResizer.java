@@ -4,23 +4,26 @@
 
 package io.flutter.plugins.imagepicker;
 
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 import androidx.core.util.SizeFCompat;
+import androidx.exifinterface.media.ExifInterface;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 
 class ImageResizer {
-  private final File externalFilesDirectory;
+  private final Context context;
   private final ExifDataCopier exifDataCopier;
 
-  ImageResizer(File externalFilesDirectory, ExifDataCopier exifDataCopier) {
-    this.externalFilesDirectory = externalFilesDirectory;
+  ImageResizer(final @NonNull Context context, final @NonNull ExifDataCopier exifDataCopier) {
+    this.context = context;
     this.exifDataCopier = exifDataCopier;
   }
 
@@ -80,47 +83,34 @@ class ImageResizer {
   }
 
   private SizeFCompat calculateTargetSize(
-      @NonNull Double originalWidth,
-      @NonNull Double originalHeight,
+      double originalWidth,
+      double originalHeight,
       @Nullable Double maxWidth,
       @Nullable Double maxHeight) {
+    double aspectRatio = originalWidth / originalHeight;
 
     boolean hasMaxWidth = maxWidth != null;
     boolean hasMaxHeight = maxHeight != null;
 
-    Double width = hasMaxWidth ? Math.min(originalWidth, maxWidth) : originalWidth;
-    Double height = hasMaxHeight ? Math.min(originalHeight, maxHeight) : originalHeight;
+    double width = hasMaxWidth ? Math.min(originalWidth, Math.round(maxWidth)) : originalWidth;
+    double height = hasMaxHeight ? Math.min(originalHeight, Math.round(maxHeight)) : originalHeight;
 
     boolean shouldDownscaleWidth = hasMaxWidth && maxWidth < originalWidth;
     boolean shouldDownscaleHeight = hasMaxHeight && maxHeight < originalHeight;
     boolean shouldDownscale = shouldDownscaleWidth || shouldDownscaleHeight;
 
     if (shouldDownscale) {
-      double downscaledWidth = (height / originalHeight) * originalWidth;
-      double downscaledHeight = (width / originalWidth) * originalHeight;
+      double WidthForMaxHeight = height * aspectRatio;
+      double heightForMaxWidth = width / aspectRatio;
 
-      if (width < height) {
-        if (!hasMaxWidth) {
-          width = downscaledWidth;
-        } else {
-          height = downscaledHeight;
-        }
-      } else if (height < width) {
-        if (!hasMaxHeight) {
-          height = downscaledHeight;
-        } else {
-          width = downscaledWidth;
-        }
+      if (heightForMaxWidth > height) {
+        width = (double) Math.round(WidthForMaxHeight);
       } else {
-        if (originalWidth < originalHeight) {
-          width = downscaledWidth;
-        } else if (originalHeight < originalWidth) {
-          height = downscaledHeight;
-        }
+        height = (double) Math.round(heightForMaxWidth);
       }
     }
 
-    return new SizeFCompat(width.floatValue(), height.floatValue());
+    return new SizeFCompat((float) width, (float) height);
   }
 
   private File createFile(File externalFilesDirectory, String child) {
@@ -136,10 +126,15 @@ class ImageResizer {
   }
 
   private void copyExif(String filePathOri, String filePathDest) {
-    exifDataCopier.copyExif(filePathOri, filePathDest);
+    try {
+      exifDataCopier.copyExif(new ExifInterface(filePathOri), new ExifInterface(filePathDest));
+    } catch (Exception ex) {
+      Log.e("ImageResizer", "Error preserving Exif data on selected image: " + ex);
+    }
   }
 
-  private SizeFCompat readFileDimensions(String path) {
+  @VisibleForTesting
+  SizeFCompat readFileDimensions(String path) {
     BitmapFactory.Options options = new BitmapFactory.Options();
     options.inJustDecodeBounds = true;
     decodeFile(path, options);
@@ -193,7 +188,9 @@ class ImageResizer {
         saveAsPNG ? Bitmap.CompressFormat.PNG : Bitmap.CompressFormat.JPEG,
         imageQuality,
         outputStream);
-    File imageFile = createFile(externalFilesDirectory, name);
+
+    File cacheDirectory = context.getCacheDir();
+    File imageFile = createFile(cacheDirectory, name);
     FileOutputStream fileOutput = createOutputStream(imageFile);
     fileOutput.write(outputStream.toByteArray());
     fileOutput.close();

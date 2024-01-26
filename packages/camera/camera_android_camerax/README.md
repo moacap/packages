@@ -24,18 +24,12 @@ dependencies:
 
 ## Missing features and limitations
 
-### Resolution configuration \[[Issue #120462][120462]\]
 
-Any specified `ResolutionPreset` wll go unused in favor of CameraX defaults and
-`onCameraResolutionChanged` is unimplemented.
+### 240p resolution configuration for video recording
 
-### Locking/Unlocking capture orientation \[[Issue #125915][125915]\]
-
-`lockCaptureOrientation` & `unLockCaptureOrientation` are unimplemented.
-
-### Flash mode configuration \[[Issue #120715][120715]\]
-
-`setFlashMode` is unimplemented.
+240p resolution configuration for video recording is unsupported by CameraX,
+and thus, the plugin will fall back to 480p if configured with a
+`ResolutionPreset`.
 
 ### Exposure mode, point, & offset configuration \[[Issue #120468][120468]\]
 
@@ -45,9 +39,12 @@ Any specified `ResolutionPreset` wll go unused in favor of CameraX defaults and
 
 `setFocusMode` & `setFocusPoint` are unimplemented.
 
-### Zoom configuration \[[Issue #125371][125371]\]
+### Setting maximum duration and stream options for video capture
 
-`setZoomLevel` is unimplemented.
+Calling `startVideoCapturing` with `VideoCaptureOptions` configured with
+`maxVideoDuration` and `streamOptions` is currently unsupported do to the
+limitations of the CameraX library and the platform interface, respectively,
+and thus, those parameters will silently be ignored.
 
 ## Contributing
 
@@ -66,3 +63,5 @@ For more information on contributing to this plugin, see [`CONTRIBUTING.md`](CON
 [120468]: https://github.com/flutter/flutter/issues/120468
 [120467]: https://github.com/flutter/flutter/issues/120467
 [125371]: https://github.com/flutter/flutter/issues/125371
+[126477]: https://github.com/flutter/flutter/issues/126477
+[127896]: https://github.com/flutter/flutter/issues/127896

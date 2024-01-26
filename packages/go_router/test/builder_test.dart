@@ -4,18 +4,14 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:go_router/src/builder.dart';
-import 'package:go_router/src/configuration.dart';
-import 'package:go_router/src/match.dart';
-import 'package:go_router/src/matching.dart';
-import 'package:go_router/src/router.dart';
+import 'package:go_router/go_router.dart';
 
 import 'test_helpers.dart';
 
 void main() {
   group('RouteBuilder', () {
     testWidgets('Builds GoRoute', (WidgetTester tester) async {
-      final RouteConfiguration config = RouteConfiguration(
+      final RouteConfiguration config = createRouteConfiguration(
         routes: <RouteBase>[
           GoRoute(
             path: '/',
@@ -36,8 +32,6 @@ void main() {
             RouteMatch(
               route: config.routes.first as GoRoute,
               matchedLocation: '/',
-              extra: null,
-              error: null,
               pageKey: const ValueKey<String>('/'),
             ),
           ],
@@ -55,21 +49,24 @@ void main() {
     });
 
     testWidgets('Builds ShellRoute', (WidgetTester tester) async {
-      final RouteConfiguration config = RouteConfiguration(
+      final GlobalKey<NavigatorState> shellNavigatorKey =
+          GlobalKey<NavigatorState>();
+      final RouteConfiguration config = createRouteConfiguration(
         routes: <RouteBase>[
           ShellRoute(
-              builder:
-                  (BuildContext context, GoRouterState state, Widget child) {
-                return _DetailsScreen();
-              },
-              routes: <GoRoute>[
-                GoRoute(
-                  path: '/',
-                  builder: (BuildContext context, GoRouterState state) {
-                    return _DetailsScreen();
-                  },
-                ),
-              ]),
+            navigatorKey: shellNavigatorKey,
+            builder: (BuildContext context, GoRouterState state, Widget child) {
+              return _DetailsScreen();
+            },
+            routes: <GoRoute>[
+              GoRoute(
+                path: '/',
+                builder: (BuildContext context, GoRouterState state) {
+                  return _DetailsScreen();
+                },
+              ),
+            ],
+          ),
         ],
         redirectLimit: 10,
         topRedirect: (BuildContext context, GoRouterState state) {
@@ -79,9 +76,20 @@ void main() {
       );
 
       final RouteMatchList matches = RouteMatchList(
-        matches: <RouteMatch>[
-          createRouteMatch(config.routes.first, '/'),
-          createRouteMatch(config.routes.first.routes.first, '/'),
+        matches: <RouteMatchBase>[
+          ShellRouteMatch(
+            route: config.routes.first as ShellRouteBase,
+            matchedLocation: '',
+            pageKey: const ValueKey<String>(''),
+            navigatorKey: shellNavigatorKey,
+            matches: <RouteMatchBase>[
+              RouteMatch(
+                route: config.routes.first.routes.first as GoRoute,
+                matchedLocation: '/',
+                pageKey: const ValueKey<String>('/'),
+              ),
+            ],
+          ),
         ],
         uri: Uri.parse('/'),
         pathParameters: const <String, String>{},
@@ -100,7 +108,7 @@ void main() {
     testWidgets('Uses the correct navigatorKey', (WidgetTester tester) async {
       final GlobalKey<NavigatorState> rootNavigatorKey =
           GlobalKey<NavigatorState>();
-      final RouteConfiguration config = RouteConfiguration(
+      final RouteConfiguration config = createRouteConfiguration(
         navigatorKey: rootNavigatorKey,
         routes: <RouteBase>[
           GoRoute(
@@ -121,8 +129,6 @@ void main() {
             RouteMatch(
               route: config.routes.first as GoRoute,
               matchedLocation: '/',
-              extra: null,
-              error: null,
               pageKey: const ValueKey<String>('/'),
             ),
           ],
@@ -145,7 +151,7 @@ void main() {
           GlobalKey<NavigatorState>(debugLabel: 'root');
       final GlobalKey<NavigatorState> shellNavigatorKey =
           GlobalKey<NavigatorState>(debugLabel: 'shell');
-      final RouteConfiguration config = RouteConfiguration(
+      final RouteConfiguration config = createRouteConfiguration(
         navigatorKey: rootNavigatorKey,
         routes: <RouteBase>[
           ShellRoute(
@@ -172,21 +178,19 @@ void main() {
       );
 
       final RouteMatchList matches = RouteMatchList(
-          matches: <RouteMatch>[
-            RouteMatch(
-              route: config.routes.first,
-              matchedLocation: '',
-              extra: null,
-              error: null,
-              pageKey: const ValueKey<String>(''),
-            ),
-            RouteMatch(
-              route: config.routes.first.routes.first,
-              matchedLocation: '/details',
-              extra: null,
-              error: null,
-              pageKey: const ValueKey<String>('/details'),
-            ),
+          matches: <RouteMatchBase>[
+            ShellRouteMatch(
+                route: config.routes.first as ShellRouteBase,
+                matchedLocation: '',
+                pageKey: const ValueKey<String>(''),
+                navigatorKey: shellNavigatorKey,
+                matches: <RouteMatchBase>[
+                  RouteMatch(
+                    route: config.routes.first.routes.first as GoRoute,
+                    matchedLocation: '/details',
+                    pageKey: const ValueKey<String>('/details'),
+                  ),
+                ]),
           ],
           uri: Uri.parse('/details'),
           pathParameters: const <String, String>{});
@@ -210,7 +214,7 @@ void main() {
           GlobalKey<NavigatorState>(debugLabel: 'root');
       final GlobalKey<NavigatorState> shellNavigatorKey =
           GlobalKey<NavigatorState>(debugLabel: 'shell');
-      final RouteConfiguration config = RouteConfiguration(
+      final RouteConfiguration config = createRouteConfiguration(
         navigatorKey: rootNavigatorKey,
         routes: <RouteBase>[
           ShellRoute(
@@ -251,8 +255,6 @@ void main() {
             RouteMatch(
               route: config.routes.first.routes.first as GoRoute,
               matchedLocation: '/a/details',
-              extra: null,
-              error: null,
               pageKey: const ValueKey<String>('/a/details'),
             ),
           ],
@@ -278,7 +280,7 @@ void main() {
           GlobalKey<NavigatorState>(debugLabel: 'root');
       final GlobalKey<NavigatorState> shellNavigatorKey =
           GlobalKey<NavigatorState>(debugLabel: 'shell');
-      final RouteConfiguration config = RouteConfiguration(
+      final RouteConfiguration config = createRouteConfiguration(
         navigatorKey: rootNavigatorKey,
         routes: <RouteBase>[
           ShellRoute(
@@ -304,9 +306,20 @@ void main() {
       );
 
       final RouteMatchList matches = RouteMatchList(
-        matches: <RouteMatch>[
-          createRouteMatch(config.routes.first, ''),
-          createRouteMatch(config.routes.first.routes.first, '/a'),
+        matches: <RouteMatchBase>[
+          ShellRouteMatch(
+            route: config.routes.first as ShellRouteBase,
+            matchedLocation: '',
+            pageKey: const ValueKey<String>(''),
+            navigatorKey: shellNavigatorKey,
+            matches: <RouteMatchBase>[
+              RouteMatch(
+                route: config.routes.first.routes.first as GoRoute,
+                matchedLocation: '/a',
+                pageKey: const ValueKey<String>('/a'),
+              ),
+            ],
+          ),
         ],
         uri: Uri.parse('/b'),
         pathParameters: const <String, String>{},
@@ -444,8 +457,7 @@ class _BuilderTestWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      home: builder.tryBuild(context, matches, false,
-          routeConfiguration.navigatorKey, <Page<Object?>, GoRouterState>{}),
+      home: builder.build(context, matches, false),
     );
   }
 }

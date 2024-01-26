@@ -11,7 +11,7 @@ import '../ui_kit/ui_kit.dart';
 import 'web_kit_api_impls.dart';
 
 export 'web_kit_api_impls.dart'
-    show WKNavigationType, WKPermissionDecision, WKMediaCaptureType;
+    show WKMediaCaptureType, WKNavigationType, WKPermissionDecision;
 
 /// Times at which to inject script content into a webpage.
 ///
@@ -172,10 +172,16 @@ class WKNavigationAction {
 @immutable
 class WKFrameInfo {
   /// Construct a [WKFrameInfo].
-  const WKFrameInfo({required this.isMainFrame});
+  const WKFrameInfo({
+    required this.isMainFrame,
+    required this.request,
+  });
 
   /// Indicates whether the frame is the web site's main frame or a subframe.
   final bool isMainFrame;
+
+  /// The URL request object associated with the navigation action.
+  final NSUrlRequest request;
 }
 
 /// A script that the web view injects into a webpage.
@@ -678,6 +684,20 @@ class WKWebViewConfiguration extends NSObject {
     );
   }
 
+  /// Indicates whether the web view limits navigation to pages within the app’s domain.
+  ///
+  /// When navigation is limited, Javascript evaluation is unrestricted.
+  /// See https://webkit.org/blog/10882/app-bound-domains/
+  ///
+  /// Sets [WKWebViewConfiguration.limitsNavigationsToAppBoundDomains](https://developer.apple.com/documentation/webkit/wkwebviewconfiguration/3585117-limitsnavigationstoappbounddomai?language=objc).
+  Future<void> setLimitsNavigationsToAppBoundDomains(bool limit) {
+    return _webViewConfigurationApi
+        .setLimitsNavigationsToAppBoundDomainsForInstances(
+      this,
+      limit,
+    );
+  }
+
   /// The media types that require a user gesture to begin playing.
   ///
   /// Use [WKAudiovisualMediaType.none] to indicate that no user gestures are
@@ -714,6 +734,9 @@ class WKUIDelegate extends NSObject {
   WKUIDelegate({
     this.onCreateWebView,
     this.requestMediaCapturePermission,
+    this.runJavaScriptAlertDialog,
+    this.runJavaScriptConfirmDialog,
+    this.runJavaScriptTextInputDialog,
     super.observeValue,
     super.binaryMessenger,
     super.instanceManager,
@@ -735,6 +758,9 @@ class WKUIDelegate extends NSObject {
   WKUIDelegate.detached({
     this.onCreateWebView,
     this.requestMediaCapturePermission,
+    this.runJavaScriptAlertDialog,
+    this.runJavaScriptConfirmDialog,
+    this.runJavaScriptTextInputDialog,
     super.observeValue,
     super.binaryMessenger,
     super.instanceManager,
@@ -766,11 +792,30 @@ class WKUIDelegate extends NSObject {
     WKMediaCaptureType type,
   )? requestMediaCapturePermission;
 
+  /// Notifies the host application that the web page
+  /// wants to display a JavaScript alert() dialog.
+  final Future<void> Function(String message, WKFrameInfo frame)?
+      runJavaScriptAlertDialog;
+
+  /// Notifies the host application that the web page
+  /// wants to display a JavaScript confirm() dialog.
+  final Future<bool> Function(String message, WKFrameInfo frame)?
+      runJavaScriptConfirmDialog;
+
+  /// Notifies the host application that the web page
+  /// wants to display a JavaScript prompt() dialog.
+  final Future<String> Function(
+          String prompt, String defaultText, WKFrameInfo frame)?
+      runJavaScriptTextInputDialog;
+
   @override
   WKUIDelegate copy() {
     return WKUIDelegate.detached(
       onCreateWebView: onCreateWebView,
       requestMediaCapturePermission: requestMediaCapturePermission,
+      runJavaScriptAlertDialog: runJavaScriptAlertDialog,
+      runJavaScriptConfirmDialog: runJavaScriptConfirmDialog,
+      runJavaScriptTextInputDialog: runJavaScriptTextInputDialog,
       observeValue: observeValue,
       binaryMessenger: _uiDelegateApi.binaryMessenger,
       instanceManager: _uiDelegateApi.instanceManager,
@@ -816,6 +861,7 @@ class WKNavigationDelegate extends NSObject {
     this.didFailNavigation,
     this.didFailProvisionalNavigation,
     this.webViewWebContentProcessDidTerminate,
+    this.didReceiveAuthenticationChallenge,
     super.observeValue,
     super.binaryMessenger,
     super.instanceManager,
@@ -841,6 +887,7 @@ class WKNavigationDelegate extends NSObject {
     this.didFailNavigation,
     this.didFailProvisionalNavigation,
     this.webViewWebContentProcessDidTerminate,
+    this.didReceiveAuthenticationChallenge,
     super.observeValue,
     super.binaryMessenger,
     super.instanceManager,
@@ -887,6 +934,16 @@ class WKNavigationDelegate extends NSObject {
   /// {@macro webview_flutter_wkwebview.foundation.callbacks}
   final void Function(WKWebView webView)? webViewWebContentProcessDidTerminate;
 
+  /// Called when the delegate needs a response to an authentication challenge.
+  final void Function(
+    WKWebView webView,
+    NSUrlAuthenticationChallenge challenge,
+    void Function(
+      NSUrlSessionAuthChallengeDisposition disposition,
+      NSUrlCredential? credential,
+    ) completionHandler,
+  )? didReceiveAuthenticationChallenge;
+
   @override
   WKNavigationDelegate copy() {
     return WKNavigationDelegate.detached(
@@ -897,6 +954,7 @@ class WKNavigationDelegate extends NSObject {
       didFailProvisionalNavigation: didFailProvisionalNavigation,
       webViewWebContentProcessDidTerminate:
           webViewWebContentProcessDidTerminate,
+      didReceiveAuthenticationChallenge: didReceiveAuthenticationChallenge,
       observeValue: observeValue,
       binaryMessenger: _navigationDelegateApi.binaryMessenger,
       instanceManager: _navigationDelegateApi.instanceManager,
@@ -1091,6 +1149,31 @@ class WKWebView extends UIView {
       this,
       javaScriptString,
     );
+  }
+
+  /// Enables debugging of web contents (HTML / CSS / JavaScript) in the
+  /// underlying WebView.
+  ///
+  /// This flag can be enabled in order to facilitate debugging of web layouts
+  /// and JavaScript code running inside WebViews. Please refer to [WKWebView](https://developer.apple.com/documentation/webkit/wkwebview?language=objc).
+  /// documentation for the debugging guide.
+  ///
+  /// Starting from macOS version 13.3, iOS version 16.4, and tvOS version 16.4,
+  /// the default value is set to false.
+  ///
+  /// Defaults to true in previous versions.
+  Future<void> setInspectable(bool inspectable) {
+    return _webViewApi.setInspectableForInstances(
+      this,
+      inspectable,
+    );
+  }
+
+  /// The custom user agent string.
+  ///
+  /// Represents [WKWebView.customUserAgent](https://developer.apple.com/documentation/webkit/wkwebview/1414950-customuseragent?language=objc).
+  Future<String?> getCustomUserAgent() {
+    return _webViewApi.getCustomUserAgentForInstances(this);
   }
 
   @override

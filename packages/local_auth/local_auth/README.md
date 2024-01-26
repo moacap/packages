@@ -1,6 +1,6 @@
 # local_auth
 
-<?code-excerpt path-base="excerpts/packages/local_auth_example"?>
+<?code-excerpt path-base="example/lib"?>
 
 This Flutter plugin provides means to perform local, on-device authentication of
 the user.
@@ -10,7 +10,7 @@ fingerprint or facial recognition.
 
 |             | Android   | iOS   | Windows     |
 |-------------|-----------|-------|-------------|
-| **Support** | SDK 16+\* | 11.0+ | Windows 10+ |
+| **Support** | SDK 16+\* | 12.0+ | Windows 10+ |
 
 ## Usage
 

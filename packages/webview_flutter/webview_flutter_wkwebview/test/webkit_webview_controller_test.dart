@@ -4,9 +4,6 @@
 
 import 'dart:async';
 import 'dart:math';
-// TODO(a14n): remove this import once Flutter 3.1 or later reaches stable (including flutter/flutter#104231)
-// ignore: unnecessary_import
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -31,6 +28,7 @@ import 'webkit_webview_controller_test.mocks.dart';
   WKWebsiteDataStore,
   WKWebView,
   WKWebViewConfiguration,
+  WKScriptMessageHandler,
 ])
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -93,14 +91,31 @@ void main() {
               WKFrameInfo frame,
               WKMediaCaptureType type,
             )? requestMediaCapturePermission,
+            Future<void> Function(
+              String message,
+              WKFrameInfo frame,
+            )? runJavaScriptAlertDialog,
+            Future<bool> Function(
+              String message,
+              WKFrameInfo frame,
+            )? runJavaScriptConfirmDialog,
+            Future<String> Function(
+              String prompt,
+              String defaultText,
+              WKFrameInfo frame,
+            )? runJavaScriptTextInputDialog,
             InstanceManager? instanceManager,
           }) {
             return uiDelegate ??
                 CapturingUIDelegate(
-                  onCreateWebView: onCreateWebView,
-                  requestMediaCapturePermission: requestMediaCapturePermission,
-                );
+                    onCreateWebView: onCreateWebView,
+                    requestMediaCapturePermission:
+                        requestMediaCapturePermission,
+                    runJavaScriptAlertDialog: runJavaScriptAlertDialog,
+                    runJavaScriptConfirmDialog: runJavaScriptConfirmDialog,
+                    runJavaScriptTextInputDialog: runJavaScriptTextInputDialog);
           },
+          createScriptMessageHandler: WKScriptMessageHandler.detached,
         ),
         instanceManager: instanceManager,
       );
@@ -140,6 +155,43 @@ void main() {
 
         verify(
           mockConfiguration.setAllowsInlineMediaPlayback(true),
+        );
+      });
+
+      test('limitsNavigationsToAppBoundDomains', () {
+        final MockWKWebViewConfiguration mockConfiguration =
+            MockWKWebViewConfiguration();
+
+        WebKitWebViewControllerCreationParams(
+          webKitProxy: WebKitProxy(
+            createWebViewConfiguration: ({InstanceManager? instanceManager}) {
+              return mockConfiguration;
+            },
+          ),
+          limitsNavigationsToAppBoundDomains: true,
+        );
+
+        verify(
+          mockConfiguration.setLimitsNavigationsToAppBoundDomains(true),
+        );
+      });
+
+      test(
+          'limitsNavigationsToAppBoundDomains is not called if it uses default value (false)',
+          () {
+        final MockWKWebViewConfiguration mockConfiguration =
+            MockWKWebViewConfiguration();
+
+        WebKitWebViewControllerCreationParams(
+          webKitProxy: WebKitProxy(
+            createWebViewConfiguration: ({InstanceManager? instanceManager}) {
+              return mockConfiguration;
+            },
+          ),
+        );
+
+        verifyNever(
+          mockConfiguration.setLimitsNavigationsToAppBoundDomains(any),
         );
       });
 
@@ -487,7 +539,6 @@ void main() {
         details: const NSError(
           code: WKErrorCode.javaScriptResultTypeIsUnsupported,
           domain: '',
-          localizedDescription: '',
         ),
       ));
       expect(
@@ -593,7 +644,7 @@ void main() {
         mockScrollView: mockScrollView,
       );
 
-      controller.setBackgroundColor(Colors.red);
+      await controller.setBackgroundColor(Colors.red);
 
       // UIScrollView.setBackgroundColor must be called last.
       verifyInOrder(<Object>[
@@ -721,6 +772,45 @@ void main() {
       );
     });
 
+    test('addJavaScriptChannel requires channel with a unique name', () async {
+      final WebKitProxy webKitProxy = WebKitProxy(
+        createScriptMessageHandler: ({
+          required void Function(
+            WKUserContentController userContentController,
+            WKScriptMessage message,
+          ) didReceiveScriptMessage,
+        }) {
+          return WKScriptMessageHandler.detached(
+            didReceiveScriptMessage: didReceiveScriptMessage,
+          );
+        },
+      );
+      final MockWKUserContentController mockUserContentController =
+          MockWKUserContentController();
+      final WebKitWebViewController controller = createControllerWithMocks(
+        mockUserContentController: mockUserContentController,
+      );
+
+      const String nonUniqueName = 'name';
+      final WebKitJavaScriptChannelParams javaScriptChannelParams =
+          WebKitJavaScriptChannelParams(
+        name: nonUniqueName,
+        onMessageReceived: (JavaScriptMessage message) {},
+        webKitProxy: webKitProxy,
+      );
+      await controller.addJavaScriptChannel(javaScriptChannelParams);
+
+      expect(
+        () => controller.addJavaScriptChannel(
+          JavaScriptChannelParams(
+            name: nonUniqueName,
+            onMessageReceived: (_) {},
+          ),
+        ),
+        throwsArgumentError,
+      );
+    });
+
     test('removeJavaScriptChannel', () async {
       final WebKitProxy webKitProxy = WebKitProxy(
         createScriptMessageHandler: ({
@@ -809,6 +899,21 @@ void main() {
       );
     });
 
+    test('getUserAgent', () {
+      final MockWKWebView mockWebView = MockWKWebView();
+
+      final WebKitWebViewController controller = createControllerWithMocks(
+        createMockWebView: (_, {dynamic observeValue}) => mockWebView,
+      );
+
+      const String userAgent = 'str';
+
+      when(mockWebView.getCustomUserAgent()).thenAnswer(
+        (_) => Future<String?>.value(userAgent),
+      );
+      expect(controller.getUserAgent(), completion(userAgent));
+    });
+
     test('setPlatformNavigationDelegate', () {
       final MockWKWebView mockWebView = MockWKWebView();
 
@@ -879,7 +984,7 @@ void main() {
       );
 
       late final int callbackProgress;
-      navigationDelegate.setOnProgress(
+      await navigationDelegate.setOnProgress(
         (int progress) => callbackProgress = progress,
       );
 
@@ -910,7 +1015,9 @@ void main() {
         WKWebViewConfiguration.detached(),
         const WKNavigationAction(
           request: request,
-          targetFrame: WKFrameInfo(isMainFrame: false),
+          targetFrame: WKFrameInfo(
+              isMainFrame: false,
+              request: NSUrlRequest(url: 'https://google.com')),
           navigationType: WKNavigationType.linkActivated,
         ),
       );
@@ -1016,7 +1123,7 @@ void main() {
       );
 
       final Completer<UrlChange> urlChangeCompleter = Completer<UrlChange>();
-      navigationDelegate.setOnUrlChange(
+      await navigationDelegate.setOnUrlChange(
         (UrlChange change) => urlChangeCompleter.complete(change),
       );
 
@@ -1070,7 +1177,7 @@ void main() {
       );
 
       final Completer<UrlChange> urlChangeCompleter = Completer<UrlChange>();
-      navigationDelegate.setOnUrlChange(
+      await navigationDelegate.setOnUrlChange(
         (UrlChange change) => urlChangeCompleter.complete(change),
       );
 
@@ -1112,7 +1219,7 @@ void main() {
       await controller.setOnPlatformPermissionRequest(
         (PlatformWebViewPermissionRequest request) async {
           permissionRequest = request;
-          request.grant();
+          await request.grant();
         },
       );
 
@@ -1129,7 +1236,9 @@ void main() {
         CapturingUIDelegate.lastCreatedDelegate,
         WKWebView.detached(),
         const WKSecurityOrigin(host: '', port: 0, protocol: ''),
-        const WKFrameInfo(isMainFrame: false),
+        const WKFrameInfo(
+            isMainFrame: false,
+            request: NSUrlRequest(url: 'https://google.com')),
         WKMediaCaptureType.microphone,
       );
 
@@ -1137,6 +1246,214 @@ void main() {
         WebViewPermissionResourceType.microphone,
       ]);
       expect(decision, WKPermissionDecision.grant);
+    });
+
+    group('JavaScript Dialog', () {
+      test('setOnJavaScriptAlertDialog', () async {
+        final WebKitWebViewController controller = createControllerWithMocks();
+        late final String message;
+        await controller.setOnJavaScriptAlertDialog(
+            (JavaScriptAlertDialogRequest request) async {
+          message = request.message;
+          return;
+        });
+
+        const String callbackMessage = 'Message';
+        final Future<void> Function(String message, WKFrameInfo frame)
+            onJavaScriptAlertDialog =
+            CapturingUIDelegate.lastCreatedDelegate.runJavaScriptAlertDialog!;
+        await onJavaScriptAlertDialog(
+            callbackMessage,
+            const WKFrameInfo(
+                isMainFrame: false,
+                request: NSUrlRequest(url: 'https://google.com')));
+
+        expect(message, callbackMessage);
+      });
+
+      test('setOnJavaScriptConfirmDialog', () async {
+        final WebKitWebViewController controller = createControllerWithMocks();
+        late final String message;
+        const bool callbackReturnValue = true;
+        await controller.setOnJavaScriptConfirmDialog(
+            (JavaScriptConfirmDialogRequest request) async {
+          message = request.message;
+          return callbackReturnValue;
+        });
+
+        const String callbackMessage = 'Message';
+        final Future<bool> Function(String message, WKFrameInfo frame)
+            onJavaScriptConfirmDialog =
+            CapturingUIDelegate.lastCreatedDelegate.runJavaScriptConfirmDialog!;
+        final bool returnValue = await onJavaScriptConfirmDialog(
+            callbackMessage,
+            const WKFrameInfo(
+                isMainFrame: false,
+                request: NSUrlRequest(url: 'https://google.com')));
+
+        expect(message, callbackMessage);
+        expect(returnValue, callbackReturnValue);
+      });
+
+      test('setOnJavaScriptTextInputDialog', () async {
+        final WebKitWebViewController controller = createControllerWithMocks();
+        late final String message;
+        late final String? defaultText;
+        const String callbackReturnValue = 'Return Value';
+        await controller.setOnJavaScriptTextInputDialog(
+            (JavaScriptTextInputDialogRequest request) async {
+          message = request.message;
+          defaultText = request.defaultText;
+          return callbackReturnValue;
+        });
+
+        const String callbackMessage = 'Message';
+        const String callbackDefaultText = 'Default Text';
+        final Future<String> Function(
+                String prompt, String defaultText, WKFrameInfo frame)
+            onJavaScriptTextInputDialog = CapturingUIDelegate
+                .lastCreatedDelegate.runJavaScriptTextInputDialog!;
+        final String returnValue = await onJavaScriptTextInputDialog(
+            callbackMessage,
+            callbackDefaultText,
+            const WKFrameInfo(
+                isMainFrame: false,
+                request: NSUrlRequest(url: 'https://google.com')));
+
+        expect(message, callbackMessage);
+        expect(defaultText, callbackDefaultText);
+        expect(returnValue, callbackReturnValue);
+      });
+    });
+
+    test('inspectable', () async {
+      final MockWKWebView mockWebView = MockWKWebView();
+
+      final WebKitWebViewController controller = createControllerWithMocks(
+        createMockWebView: (_, {dynamic observeValue}) => mockWebView,
+      );
+
+      await controller.setInspectable(true);
+      verify(mockWebView.setInspectable(true));
+    });
+
+    group('Console logging', () {
+      test('setConsoleLogCallback should inject the correct JavaScript',
+          () async {
+        final MockWKUserContentController mockUserContentController =
+            MockWKUserContentController();
+        final WebKitWebViewController controller = createControllerWithMocks(
+          mockUserContentController: mockUserContentController,
+        );
+
+        await controller
+            .setOnConsoleMessage((JavaScriptConsoleMessage message) {});
+
+        final List<dynamic> capturedScripts =
+            verify(mockUserContentController.addUserScript(captureAny))
+                .captured
+                .toList();
+        final WKUserScript messageHandlerScript =
+            capturedScripts[0] as WKUserScript;
+        final WKUserScript overrideConsoleScript =
+            capturedScripts[1] as WKUserScript;
+
+        expect(messageHandlerScript.isMainFrameOnly, isFalse);
+        expect(messageHandlerScript.injectionTime,
+            WKUserScriptInjectionTime.atDocumentStart);
+        expect(messageHandlerScript.source,
+            'window.fltConsoleMessage = webkit.messageHandlers.fltConsoleMessage;');
+
+        expect(overrideConsoleScript.isMainFrameOnly, isTrue);
+        expect(overrideConsoleScript.injectionTime,
+            WKUserScriptInjectionTime.atDocumentStart);
+        expect(overrideConsoleScript.source, '''
+function log(type, args) {
+  var message =  Object.values(args)
+      .map(v => typeof(v) === "undefined" ? "undefined" : typeof(v) === "object" ? JSON.stringify(v) : v.toString())
+      .map(v => v.substring(0, 3000)) // Limit msg to 3000 chars
+      .join(", ");
+
+  var log = {
+    level: type,
+    message: message
+  };
+
+  window.webkit.messageHandlers.fltConsoleMessage.postMessage(JSON.stringify(log));
+}
+
+let originalLog = console.log;
+let originalInfo = console.info;
+let originalWarn = console.warn;
+let originalError = console.error;
+let originalDebug = console.debug;
+
+console.log = function() { log("log", arguments); originalLog.apply(null, arguments) };
+console.info = function() { log("info", arguments); originalInfo.apply(null, arguments) };
+console.warn = function() { log("warning", arguments); originalWarn.apply(null, arguments) };
+console.error = function() { log("error", arguments); originalError.apply(null, arguments) };
+console.debug = function() { log("debug", arguments); originalDebug.apply(null, arguments) };
+
+window.addEventListener("error", function(e) {
+  log("error", e.message + " at " + e.filename + ":" + e.lineno + ":" + e.colno);
+});
+      ''');
+      });
+
+      test('setConsoleLogCallback should parse levels correctly', () async {
+        final MockWKUserContentController mockUserContentController =
+            MockWKUserContentController();
+        final WebKitWebViewController controller = createControllerWithMocks(
+          mockUserContentController: mockUserContentController,
+        );
+
+        final Map<JavaScriptLogLevel, String> logs =
+            <JavaScriptLogLevel, String>{};
+        await controller.setOnConsoleMessage(
+            (JavaScriptConsoleMessage message) =>
+                logs[message.level] = message.message);
+
+        final List<dynamic> capturedParameters = verify(
+                mockUserContentController.addScriptMessageHandler(
+                    captureAny, any))
+            .captured
+            .toList();
+        final WKScriptMessageHandler scriptMessageHandler =
+            capturedParameters[0] as WKScriptMessageHandler;
+
+        scriptMessageHandler.didReceiveScriptMessage(
+            mockUserContentController,
+            const WKScriptMessage(
+                name: 'test',
+                body: '{"level": "debug", "message": "Debug message"}'));
+        scriptMessageHandler.didReceiveScriptMessage(
+            mockUserContentController,
+            const WKScriptMessage(
+                name: 'test',
+                body: '{"level": "error", "message": "Error message"}'));
+        scriptMessageHandler.didReceiveScriptMessage(
+            mockUserContentController,
+            const WKScriptMessage(
+                name: 'test',
+                body: '{"level": "info", "message": "Info message"}'));
+        scriptMessageHandler.didReceiveScriptMessage(
+            mockUserContentController,
+            const WKScriptMessage(
+                name: 'test',
+                body: '{"level": "log", "message": "Log message"}'));
+        scriptMessageHandler.didReceiveScriptMessage(
+            mockUserContentController,
+            const WKScriptMessage(
+                name: 'test',
+                body: '{"level": "warning", "message": "Warning message"}'));
+
+        expect(logs.length, 5);
+        expect(logs[JavaScriptLogLevel.debug], 'Debug message');
+        expect(logs[JavaScriptLogLevel.error], 'Error message');
+        expect(logs[JavaScriptLogLevel.info], 'Info message');
+        expect(logs[JavaScriptLogLevel.log], 'Log message');
+        expect(logs[JavaScriptLogLevel.warning], 'Warning message');
+      });
     });
   });
 
@@ -1186,9 +1503,11 @@ class CapturingNavigationDelegate extends WKNavigationDelegate {
     super.didFailProvisionalNavigation,
     super.decidePolicyForNavigationAction,
     super.webViewWebContentProcessDidTerminate,
+    super.didReceiveAuthenticationChallenge,
   }) : super.detached() {
     lastCreatedDelegate = this;
   }
+
   static CapturingNavigationDelegate lastCreatedDelegate =
       CapturingNavigationDelegate();
 }
@@ -1198,9 +1517,13 @@ class CapturingUIDelegate extends WKUIDelegate {
   CapturingUIDelegate({
     super.onCreateWebView,
     super.requestMediaCapturePermission,
+    super.runJavaScriptAlertDialog,
+    super.runJavaScriptConfirmDialog,
+    super.runJavaScriptTextInputDialog,
     super.instanceManager,
   }) : super.detached() {
     lastCreatedDelegate = this;
   }
+
   static CapturingUIDelegate lastCreatedDelegate = CapturingUIDelegate();
 }

@@ -11,8 +11,10 @@ import 'package:pubspec_parse/pubspec_parse.dart';
 
 import 'common/core.dart';
 import 'common/file_utils.dart';
+import 'common/output_utils.dart';
 import 'common/package_command.dart';
 import 'common/process_runner.dart';
+import 'common/pub_utils.dart';
 import 'common/repository_package.dart';
 
 /// The name of the build-all-packages project, as passed to `flutter create`.
@@ -96,7 +98,7 @@ class CreateAllPackagesAppCommand extends PackageCommand {
     // further and/or implement https://github.com/flutter/flutter/issues/93407,
     // and remove the need for this conditional.
     if (!platform.isWindows) {
-      if (!await _genNativeBuildFiles()) {
+      if (!await runPubGet(app, processRunner, platform)) {
         printError(
             "Failed to generate native build files via 'flutter pub get'");
         throw ToolExit(_exitGenNativeBuildFilesFailed);
@@ -234,8 +236,7 @@ dependencies {}
       replacements: <String, List<String>>{
         // minSdkVersion 21 is required by camera_android.
         'minSdkVersion': <String>['minSdkVersion 21'],
-        // compileSdkVersion 33 is required by local_auth.
-        'compileSdkVersion': <String>['compileSdkVersion 33'],
+        'compileSdkVersion': <String>['compileSdk 34'],
       },
       additions: <String, List<String>>{
         'defaultConfig {': <String>['        multiDexEnabled true'],
@@ -291,6 +292,20 @@ dependencies {}
       },
       dependencyOverrides: pluginDeps,
     );
+
+    // An application cannot depend directly on multiple federated
+    // implementations of the same plugin for the same platform, which means the
+    // app cannot directly depend on both camera_android and
+    // camera_android_androidx. Since camera_android is endorsed, it will be
+    // included transitively already, so exclude it from the direct dependency
+    // list to allow including camera_android_androidx to ensure that they don't
+    // conflict at build time (if they did, it would be impossible to use
+    // camera_android_androidx while camera_android is endorsed).
+    // This is special-cased here, rather than being done via the normal
+    // exclusion config file mechanism, because it still needs to be in the
+    // depenedency overrides list to ensure that the version from path is used.
+    pubspec.dependencies.remove('camera_android');
+
     app.pubspecFile.writeAsStringSync(_pubspecToString(pubspec));
   }
 
@@ -369,15 +384,6 @@ dev_dependencies:${_pubspecMapString(pubspec.devDependencies)}
     }
 
     return buffer.toString();
-  }
-
-  Future<bool> _genNativeBuildFiles() async {
-    final int exitCode = await processRunner.runAndStream(
-      flutterCommand,
-      <String>['pub', 'get'],
-      workingDir: _appDirectory,
-    );
-    return exitCode == 0;
   }
 
   Future<void> _updateMacosPodfile() async {
